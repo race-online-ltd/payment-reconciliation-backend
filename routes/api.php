@@ -7,6 +7,10 @@ use App\Http\Controllers\API\PaymentChannelController;
 use App\Http\Controllers\API\WalletController;
 use App\Http\Controllers\API\BillingSystemController;
 use App\Http\Controllers\API\ReconcileController;
+use App\Http\Controllers\API\ComparisonSummaryController;
+use App\Http\Controllers\API\BatchController;
+use App\Http\Controllers\API\BillingTransactionController;
+use App\Http\Controllers\API\VendorTransactionController;
 
 // PUBLIC routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -91,6 +95,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('{id}', [BatchController::class, 'show']);
         Route::delete('{batch}', [BatchController::class, 'destroy']);
     });
+
+    // Comparison Summary (Daily breakdown)
+    Route::get('/comparison-summary', [ComparisonSummaryController::class, 'summary']);
 });
 
 Route::post('/reconcile', [ReconcileController::class, 'reconcile']);
