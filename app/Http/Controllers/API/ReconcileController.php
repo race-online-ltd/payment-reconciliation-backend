@@ -9,10 +9,11 @@ use App\Models\BillingFile;
 use App\Models\VendorTransaction;
 use App\Models\BillingTransaction;
 use App\Services\BillingNormalizationService;
+use App\Services\VendorNormalizationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
-use App\Services\VendorNormalizationService;
+use App\Jobs\RunComparisonJob;
 
 class ReconcileController extends Controller
 {
@@ -46,8 +47,8 @@ class ReconcileController extends Controller
                 'started_at'         => now(),
             ]);
 
-            $baseFolder = "batch-{$batch->id}";
-            $normalizer = new VendorNormalizationService();
+            $baseFolder        = "batch-{$batch->id}";
+            $normalizer        = new VendorNormalizationService();
             $billingNormalizer = new BillingNormalizationService();
 
             // 2️⃣ Process vendor/service files
@@ -63,7 +64,6 @@ class ReconcileController extends Controller
                     'stored_path'       => $path,
                 ]);
 
-                // ✅ Pass wallet_id as 3rd argument
                 $normalizedRows = $normalizer->normalize(
                     $path,
                     $vendorFile->channel_id,
@@ -73,22 +73,21 @@ class ReconcileController extends Controller
                 $bulkInsert = [];
                 foreach ($normalizedRows as $index => $row) {
                     $bulkInsert[] = [
-                        'batch_id'  => $vendorFile->batch_id,
-                        'wallet_id' => $vendorFile->wallet_id,
-                        'trx_id'    => $row['trx_id'],
-                        'sender_no' => $row['sender_no'],
-                        'trx_date'  => $row['trx_date'],
-                        'amount'    => $row['amount'],
-                        'row_index' => $index + 1, // ← Add this to preserve sequence
-                        'created_at'=> now(),
-                        'updated_at'=> now(),
+                        'batch_id'   => $vendorFile->batch_id,
+                        'wallet_id'  => $vendorFile->wallet_id,
+                        'trx_id'     => $row['trx_id'],
+                        'sender_no'  => $row['sender_no'],
+                        'trx_date'   => $row['trx_date'],
+                        'amount'     => $row['amount'],
+                        'row_index'  => $index + 1,
+                        'created_at' => now(),
+                        'updated_at' => now(),
                     ];
                 }
 
                 if (!empty($bulkInsert)) {
                     VendorTransaction::insert($bulkInsert);
                 }
-
             }
 
             // 3️⃣ Process billing files
@@ -103,20 +102,12 @@ class ReconcileController extends Controller
                     'stored_path'       => $path,
                 ]);
 
-                // 🔹 Normalize billing file
                 $normalizedRows = $billingNormalizer->normalize(
                     $path,
                     $billingFile->billing_system_id
                 );
 
-
-                // ✅ ADD DEBUG HERE
-    \Log::info('Normalized rows count: ' . count($normalizedRows));
-    \Log::info('First row sample: ', $normalizedRows[0] ?? ['empty']);
-
-
                 $bulkInsert = [];
-
                 foreach ($normalizedRows as $index => $row) {
                     $bulkInsert[] = [
                         'batch_id'          => $billingFile->batch_id,
@@ -137,13 +128,15 @@ class ReconcileController extends Controller
                 }
             }
 
-
-            // 4️⃣ Commit
+            // 4️⃣ Commit uploads
             DB::commit();
+
+            // 5️⃣ Dispatch comparison job to background queue
+            RunComparisonJob::dispatch($batch);
 
             return response()->json([
                 'success'  => true,
-                'message'  => 'Batch created successfully',
+                'message'  => 'Files uploaded successfully. Comparison is processing in background.',
                 'batch_id' => $batch->id,
             ], 201);
 

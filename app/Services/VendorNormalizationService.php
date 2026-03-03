@@ -37,7 +37,7 @@ class VendorNormalizationService
             $entry = null;
 
             switch ($channelId) {
-                case 1: // Bkash Wallet
+                case 1: // Bkash Paybill
                     $entry = [
                         'sender_no' => $rowData['bkash account'] ?? null,
                         'trx_id'    => $rowData['transaction id'] ?? null,
@@ -54,36 +54,26 @@ class VendorNormalizationService
                         'amount'    => isset($rowData['transaction amount']) ? floatval(str_replace(',', '', $rowData['transaction amount'])) : null,
                     ];
 
-                    // Optional: log for debugging
-                    \Log::info("Normalized Bkash PGW row #{$index}:", $entry);
-
-                    
                     break;
 
-                case 3: // Rocket
-                    $entry = [
+               case 3: // Nagad Paybill
+                     $entry = [
                         'sender_no' => $rowData['initiator account no.'] ?? null,
-                        'trx_id'    => $rowData['transaction id'] ?? null,
-                        'trx_date'  => isset($rowData['transaction time']) ? Carbon::parse($rowData['transaction time'])->format('Y-m-d H:i:s') : null,
-                        'amount'    => isset($rowData['amount']) ? floatval(str_replace(',', '', $rowData['amount'])) : null,
-                    ];
-                    break;
+                         'trx_id'    => $rowData['transaction id'] ?? null,
+                         'trx_date'  => isset($rowData['transaction time']) ? Carbon::parse($rowData['transaction time'])->format('Y-m-d H:i:s') : null,
+                         'amount'    => isset($rowData['amount']) ? floatval(str_replace(',', '', $rowData['amount'])) : null,
+                     ];
+                      break;
 
-                case 4: // Other wallets
-                    $entry = [
-                        'sender_no' => $rowData['customer account'] ?? $rowData['customer mobile no'] ?? null,
-                        'trx_id'    => $rowData['transaction id'] ?? null,
-                        'trx_date'  => isset($rowData['transaction time']) 
-                                        ? Carbon::parse($rowData['transaction time'])->format('Y-m-d H:i:s') 
-                                        : (isset($rowData['transaction datetime']) 
-                                            ? Carbon::parse($rowData['transaction datetime'])->format('Y-m-d H:i:s') 
-                                            : null),
-                        'amount'    => isset($rowData['transaction amount']) 
-                                        ? floatval(str_replace(',', '', $rowData['transaction amount'])) 
-                                        : (isset($rowData['amount']) ? floatval(str_replace(',', '', $rowData['amount'])) : null),
-                    ];
-                    break;
-            }
+                case 4: // Nagad PGW
+                        $entry = [
+                            'sender_no' => $rowData['customer account'] ?? null,
+                            'trx_id'    => $rowData['transaction id'] ?? null,
+                            'trx_date'  => isset($rowData['transaction time']) ? Carbon::parse($rowData['transaction time'])->format('Y-m-d H:i:s') : null,
+                            'amount'    => isset($rowData['amount']) ? floatval(str_replace(',', '', $rowData['amount'])) : null,
+                        ];
+                        break;
+}
 
             // Only keep valid rows with trx_id and amount
             if ($entry && $entry['trx_id'] && $entry['amount'] !== null) {
