@@ -23,7 +23,7 @@ return new class extends Migration
             $table->string('trx_id')->index(); // Index to quickly search by transaction ID
             $table->string('entity')->nullable(); 
             $table->string('customer_id')->index(); // Index for generating reports by customer ID
-            $table->string('sender_no'); 
+            $table->string('sender_no')->nullable(); // Optional sender number
             $table->decimal('amount', 15, 2); 
             $table->dateTime('trx_date')->index(); // Index to filter transactions by date/time
             $table->timestamps(); // Laravel created_at and updated_at

@@ -17,7 +17,10 @@ class WalletController extends Controller
     public function index(): JsonResponse
     {
         // Eager load nested relationship: Wallet -> Channel -> Method
-        $wallets = Wallet::with('paymentChannel.paymentMethod')->get();
+        // $wallets = Wallet::with('paymentChannel.paymentMethod')->get();
+        $wallets = Wallet::with('paymentChannel.paymentMethod')
+            ->where('status', 1)
+            ->get();
         
         return response()->json([
             'success' => true,
