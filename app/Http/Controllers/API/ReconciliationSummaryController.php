@@ -66,10 +66,11 @@ class ReconciliationSummaryController extends Controller
                 }
             }
 
-            $summary[] = [
-                'date'       => $run->run_date,
-                'batch_id'   => $run->batch_id,
-                'process_no' => $run->process_no,
+           $summary[] = [
+                'batch_id'     => $run->batch_id,
+                'process_no'   => $run->process_no,
+                'start_date'   => $run->batch->start_date,  // ← add this
+                'end_date'     => $run->batch->end_date,    // ← add this
                 'transactions' => $total,
                 'matched'      => $matched,
                 'mismatch'     => array_merge($mismatch, [
