@@ -59,7 +59,9 @@ class RunComparisonJob implements ShouldQueue
                     'trx_id'            => $vendorTrx->trx_id,
                     'billing_system_id' => $billingTrx->billing_system_id ?? null,
                     'sender_no'         => $vendorTrx->sender_no,
-                    'trx_date'          => $vendorTrx->trx_date,
+                    'trx_date'          => $vendorTrx->getRawOriginal('trx_date'),         // vendor date
+                    'vendor_trx_date'   => $vendorTrx->getRawOriginal('trx_date'),         // ✅ same source
+                    'billing_trx_date'  => $billingTrx?->getRawOriginal('trx_date'),       // ✅ null if no match
                     'entity'            => $billingTrx->entity ?? null,
                     'customer_id'       => $billingTrx->customer_id ?? null,
                     'amount'            => $vendorTrx->amount,
@@ -89,7 +91,9 @@ class RunComparisonJob implements ShouldQueue
                     'trx_id'            => $billingTrx->trx_id,
                     'billing_system_id' => $billingTrx->billing_system_id,
                     'sender_no' => null,
-                    'trx_date'          => $billingTrx->trx_date,
+                     'trx_date'          => $billingTrx->getRawOriginal('trx_date'),        // billing date
+                    'vendor_trx_date'   => null,                                           // ✅ no vendor record
+                    'billing_trx_date'  => $billingTrx->getRawOriginal('trx_date'),        // ✅ same source
                     'entity'            => $billingTrx->entity,
                     'customer_id'       => $billingTrx->customer_id,
                     'amount'            => $billingTrx->amount,
