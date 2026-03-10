@@ -13,6 +13,7 @@ use App\Http\Controllers\API\ComparisonSummaryController;
 use App\Http\Controllers\API\BatchController;
 use App\Http\Controllers\API\BillingTransactionController;
 use App\Http\Controllers\API\VendorTransactionController;
+use App\Http\Controllers\API\ReprocessController;
 
 // PUBLIC routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -117,3 +118,5 @@ Route::apiResource('comparisons', ComparisonController::class)->only(['index', '
 // or manually:
 Route::put('comparisons/{comparison}', [ComparisonController::class, 'update']);
     
+
+Route::post('/reprocess/{batchId}', [ReprocessController::class, 'reprocess']);
