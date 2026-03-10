@@ -112,4 +112,8 @@ Route::post('/', [ReconciliationSummaryController::class, 'getSummary']);
 });
 
 Route::post('/reconcile', [ReconcileController::class, 'reconcile']);
+
+Route::apiResource('comparisons', ComparisonController::class)->only(['index', 'show', 'update']);
+// or manually:
+Route::put('comparisons/{comparison}', [ComparisonController::class, 'update']);
     
