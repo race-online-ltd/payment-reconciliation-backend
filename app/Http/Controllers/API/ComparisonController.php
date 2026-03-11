@@ -26,6 +26,17 @@ class ComparisonController extends Controller
     $query = Comparison::with(['billingSystem', 'channel', 'wallet'])
         ->where('batch_id', $request->input('batch_id'));
 
+    // add search function added
+    if ($request->filled('search')) {
+        $search = $request->input('search');
+        $query->where(function ($q) use ($search) {
+            $q->where('trx_id', 'LIKE', "%{$search}%")
+              ->orWhere('sender_no', 'LIKE', "%{$search}%")
+              ->orWhere('customer_id', 'LIKE', "%{$search}%")
+              ->orWhere('entity', 'LIKE', "%{$search}%");
+        });
+    }
+
     if ($request->filled('status')) {
         $query->where('status', $request->input('status'));
     }
