@@ -1,0 +1,70 @@
+name: Laravel App CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, curl, gd, intl, mbstring, pdo_mysql, pdo_pgsql, zip, opcache
+
+      - name: Install Composer Dependencies
+        # Runs Composer install to build vendor directory on the runner
+        run: composer install --optimize-autoloader
+
+      - name: Sync Project Files via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "."
+          target: "/var/www/html/application/backend"
+          exclude: ".env"
+
+      - name: Set Permissions and Cache
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            DEPLOY_DIR="/var/www/html/application/backend"
+            echo "Running Laravel commands in $DEPLOY_DIR"
+
+            mkdir -p $DEPLOY_DIR
+            sudo chown -R www-data:www-data $DEPLOY_DIR
+
+            cd $DEPLOY_DIR
+
+            sudo chmod -R 775 storage bootstrap/cache
+
+            sudo -u www-data php artisan optimize:clear
+            sudo -u www-data php artisan config:cache
+            sudo -u www-data php artisan route:cache
+            sudo -u www-data php artisan view:cache
+
+      - name: Restart Services
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            sudo systemctl restart php8.3-fpm
+            sudo systemctl restart nginx
+            sudo systemctl restart postgresql
+
+            echo "Deployment completed successfully."
