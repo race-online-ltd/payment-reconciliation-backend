@@ -7,6 +7,7 @@ use App\Models\Wallet;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class WalletController extends Controller
 {
@@ -36,7 +37,13 @@ class WalletController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'payment_channel_id' => 'required|exists:payment_channels,id',
-            'wallet_number'      => 'required|string|unique:wallets,wallet_number',
+            'wallet_number' => [
+                    'required',
+                    'string',
+                    Rule::unique('wallets')->where(fn ($query) => 
+                        $query->where('payment_channel_id', $request->payment_channel_id)
+                    ),
+                ],
             'status'             => 'required|boolean'
         ]);
 
@@ -73,7 +80,16 @@ class WalletController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'payment_channel_id' => 'sometimes|exists:payment_channels,id',
-            'wallet_number'      => 'sometimes|string|unique:wallets,wallet_number,' . $wallet->id,
+            'wallet_number' => [
+                    'sometimes',
+                    'string',
+                    Rule::unique('wallets')
+                        ->where(fn ($query) => 
+                            $query->where('payment_channel_id', $request->payment_channel_id 
+                                ?? $wallet->payment_channel_id)
+                        )
+                        ->ignore($wallet->id),
+                ],
             'status'             => 'sometimes|boolean'
         ]);
 
