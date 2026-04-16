@@ -46,15 +46,53 @@ class VendorNormalizationService
                     ];
                     break;
 
-                case 2: // Bkash PGW
-                    $entry = [
-                        'sender_no' => $rowData['from wallet'] ?? null,
-                        'trx_id'    => $rowData['transaction id'] ?? null,
-                        'trx_date'  => isset($rowData['date time']) ? Carbon::parse($rowData['date time'])->format('Y-m-d H:i:s') : null,
-                        'amount'    => isset($rowData['transaction amount']) ? floatval(str_replace(',', '', $rowData['transaction amount'])) : null,
-                    ];
+                // case 2: // Bkash PGW
+                //     $entry = [
+                //         'sender_no' => $rowData['from wallet'] ?? null,
+                //         'trx_id'    => $rowData['transaction id'] ?? null,
+                //         'trx_date'  => isset($rowData['date time']) ? Carbon::parse($rowData['date time'])->format('Y-m-d H:i:s') : null,
+                //         'amount'    => isset($rowData['transaction amount']) ? floatval(str_replace(',', '', $rowData['transaction amount'])) : null,
+                //     ];
 
-                    break;
+                //     break;
+
+                case 2: // Bkash PGW
+    // Resolve date value from either 'date time' or 'date' column
+    $rawDate = $rowData['date time'] ?? $rowData['date'] ?? null;
+
+    // Try parsing with explicit formats before falling back to Carbon::parse
+    $parsedDate = null;
+    if ($rawDate) {
+        foreach (['Y-m-d H:i:s', 'd-m-y H:i', 'd-m-Y H:i', 'Y-m-d'] as $format) {
+            $attempt = \Carbon\Carbon::createFromFormat($format, trim($rawDate));
+            if ($attempt !== false) {
+                $parsedDate = $attempt->format('Y-m-d H:i:s');
+                break;
+            }
+        }
+        // Final fallback: let Carbon guess
+        if (!$parsedDate) {
+            try {
+                $parsedDate = \Carbon\Carbon::parse($rawDate)->format('Y-m-d H:i:s');
+            } catch (\Exception $e) {
+                $parsedDate = null;
+            }
+        }
+    }
+
+    // Resolve amount from either column name variant
+    $rawAmount = $rowData['transaction amount'] 
+        ?? $rowData['transaction amount (in bdt)'] 
+        ?? null;
+
+    $entry = [
+        'sender_no' => $rowData['from wallet'] ?? null,
+        'trx_id'    => $rowData['transaction id'] ?? null,
+        'trx_date'  => $parsedDate,
+        'amount'    => $rawAmount !== null ? floatval(str_replace(',', '', $rawAmount)) : null,
+    ];
+
+    break;
 
                case 3: // Nagad Paybill
                      $entry = [
