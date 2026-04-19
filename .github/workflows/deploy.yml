@@ -31,7 +31,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: "."
-          target: "/var/www/html/application/backend"
+          target: "/var/www/html/backend"
           exclude: ".env"
 
       - name: Set Permissions and Cache
@@ -41,7 +41,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            DEPLOY_DIR="/var/www/html/application/backend"
+            DEPLOY_DIR="/var/www/html/backend"
             echo "Running Laravel commands in $DEPLOY_DIR"
 
             mkdir -p $DEPLOY_DIR
