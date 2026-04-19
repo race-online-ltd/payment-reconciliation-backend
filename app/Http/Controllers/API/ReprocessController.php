@@ -8,6 +8,7 @@ use App\Models\VendorFile;
 use App\Models\BillingFile;
 use App\Models\VendorTransaction;
 use App\Models\BillingTransaction;
+use App\Services\BulkInsertService;
 use App\Services\BillingNormalizationService;
 use App\Services\VendorNormalizationService;
 use Illuminate\Http\Request;
@@ -17,6 +18,10 @@ use App\Jobs\RunComparisonJob;
 
 class ReprocessController extends Controller
 {
+    public function __construct(
+        private readonly BulkInsertService $bulkInsertService
+    ) {}
+
     public function reprocess(Request $request, int $batchId): JsonResponse
     {
         $request->validate([
@@ -81,7 +86,17 @@ class ReprocessController extends Controller
                 }
 
                 if (!empty($bulkInsert)) {
-                    VendorTransaction::insert($bulkInsert);
+                    $this->bulkInsertService->insertInChunks(
+                        VendorTransaction::class,
+                        $bulkInsert,
+                        [
+                            'source' => 'reprocess_vendor_import',
+                            'batch_id' => $batch->id,
+                            'channel_id' => $vendorFile->channel_id,
+                            'wallet_id' => $vendorFile->wallet_id,
+                            'stored_path' => $path,
+                        ]
+                    );
                 }
             }
 
@@ -117,7 +132,16 @@ class ReprocessController extends Controller
                 }
 
                 if (!empty($bulkInsert)) {
-                    BillingTransaction::insert($bulkInsert);
+                    $this->bulkInsertService->insertInChunks(
+                        BillingTransaction::class,
+                        $bulkInsert,
+                        [
+                            'source' => 'reprocess_billing_import',
+                            'batch_id' => $batch->id,
+                            'billing_system_id' => $billingFile->billing_system_id,
+                            'stored_path' => $path,
+                        ]
+                    );
                 }
             }
 
@@ -139,6 +163,10 @@ class ReprocessController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
+            \Log::error('Reprocess import failed.', [
+                'batch_id' => $batch->id,
+                'error' => $e->getMessage(),
+            ]);
 
             return response()->json([
                 'success' => false,

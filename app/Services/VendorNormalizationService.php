@@ -37,74 +37,235 @@ class VendorNormalizationService
             $entry = null;
 
             switch ($channelId) {
+                // case 1: // Bkash Paybill
+                //     $entry = [
+                //         'sender_no' => $rowData['bkash account'] ?? null,
+                //         'trx_id'    => $rowData['transaction id'] ?? null,
+                //         'trx_date'  => isset($rowData['transaction date']) ? Carbon::parse($rowData['transaction date'])->format('Y-m-d H:i:s') : null,
+                //         'amount'    => isset($rowData['total amount']) ? floatval(str_replace(',', '', $rowData['total amount'])) : null,
+                //     ];
+                //     break;
                 case 1: // Bkash Paybill
-                    $entry = [
-                        'sender_no' => $rowData['bkash account'] ?? null,
-                        'trx_id'    => $rowData['transaction id'] ?? null,
-                        'trx_date'  => isset($rowData['transaction date']) ? Carbon::parse($rowData['transaction date'])->format('Y-m-d H:i:s') : null,
-                        'amount'    => isset($rowData['total amount']) ? floatval(str_replace(',', '', $rowData['total amount'])) : null,
-                    ];
-                    break;
+    $rawDate = $rowData['transaction date'] ?? null;
+    $parsedDate = null;
 
-                case 2: // Bkash PGW
-                    $entry = [
-                        'sender_no' => $rowData['from wallet'] ?? null,
-                        'trx_id'    => $rowData['transaction id'] ?? null,
-                        'trx_date'  => isset($rowData['date time']) ? Carbon::parse($rowData['date time'])->format('Y-m-d H:i:s') : null,
-                        'amount'    => isset($rowData['transaction amount']) ? floatval(str_replace(',', '', $rowData['transaction amount'])) : null,
-                    ];
+    if ($rawDate) {
+        try {
+            if ($rawDate instanceof \DateTimeInterface) {
+                $parsedDate = Carbon::instance($rawDate)->format('Y-m-d');
+            } elseif (is_numeric($rawDate)) {
+                $parsedDate = Carbon::createFromTimestamp(
+                    \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$rawDate)
+                )->format('Y-m-d');
+            } else {
+                $parsedDate = Carbon::createFromFormat('Y-m-d H:i:s', trim($rawDate))->format('Y-m-d');
+            }
+        } catch (\Exception $e) {
+            try {
+                $parsedDate = Carbon::parse(trim($rawDate))->format('Y-m-d');
+            } catch (\Exception $e2) {
+                $parsedDate = null;
+            }
+        }
+    }
 
-                    break;
+    $entry = [
+        'sender_no' => $rowData['bkash account'] ?? null,
+        'trx_id'    => $rowData['transaction id'] ?? null,
+        'trx_date'  => $parsedDate,
+        'amount'    => isset($rowData['total amount']) ? $this->parseAmount($rowData['total amount']) : null,
+    ];
+    break;
 
-               case 3: // Nagad Paybill
-                     $entry = [
-                        'sender_no' => $rowData['initiator account no.'] ?? null,
-                         'trx_id'    => $rowData['transaction id'] ?? null,
-                         'trx_date'  => isset($rowData['transaction time']) ? Carbon::parse($rowData['transaction time'])->format('Y-m-d H:i:s') : null,
-                         'amount' => isset($rowData['amount']) ? $this->parseAmount($rowData['amount']) : null,
-                     ];
-                      break;
+                // case 2: // Bkash PGW
+                //     $entry = [
+                //         'sender_no' => $rowData['from wallet'] ?? null,
+                //         'trx_id'    => $rowData['transaction id'] ?? null,
+                //         'trx_date'  => isset($rowData['date time']) ? Carbon::parse($rowData['date time'])->format('Y-m-d H:i:s') : null,
+                //         'amount'    => isset($rowData['transaction amount']) ? floatval(str_replace(',', '', $rowData['transaction amount'])) : null,
+                //     ];
 
-                case 4: // Nagad PGW
-                        $entry = [
-                            'sender_no' => $rowData['customer account'] ?? null,
-                            'trx_id'    => $rowData['transaction id'] ?? null,
-                            'trx_date'  => isset($rowData['transaction time']) ? Carbon::parse($rowData['transaction time'])->format('Y-m-d H:i:s') : null,
-                           'amount' => isset($rowData['amount']) ? $this->parseAmount($rowData['amount']) : null,
-                        ];
-                        break;
+                //     break;
+
+                case 2: // Bkash PGW for automated downloads
+    $rawDate = $rowData['date'] ?? null;
+    $parsedDate = null;
+
+    if ($rawDate) {
+        try {
+            if ($rawDate instanceof \DateTimeInterface) {
+                $parsedDate = Carbon::instance($rawDate)->format('d-m-Y');
+            } elseif (is_numeric($rawDate)) {
+                $parsedDate = Carbon::createFromTimestamp(
+                    \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$rawDate)
+                )->format('d-m-Y');
+            } else {
+                $parsedDate = Carbon::createFromFormat('d-m-Y h:i A', trim($rawDate))->format('d-m-Y');
+            }
+        } catch (\Exception $e) {
+            try {
+                $parsedDate = Carbon::parse(trim($rawDate))->format('d-m-Y');
+            } catch (\Exception $e2) {
+                $parsedDate = null;
+            }
+        }
+    }
+
+    $entry = [
+        'sender_no' => $rowData['from wallet'] ?? null,
+        'trx_id'    => $rowData['transaction id'] ?? null,
+        'trx_date'  => $parsedDate,
+        'amount'    => isset($rowData['transaction amount(in bdt)']) ? $this->parseAmount($rowData['transaction amount(in bdt)']) : null,
+    ];
+    break;
+
+            //    case 3: // Nagad Paybill
+            //          $entry = [
+            //             'sender_no' => $rowData['initiator account no.'] ?? null,
+            //              'trx_id'    => $rowData['transaction id'] ?? null,
+            //              'trx_date'  => isset($rowData['transaction time']) ? Carbon::parse($rowData['transaction time'])->format('Y-m-d H:i:s') : null,
+            //              'amount' => isset($rowData['amount']) ? $this->parseAmount($rowData['amount']) : null,
+            //          ];
+            //           break;
+            case 3: // Nagad Paybill for automated downloads
+    $rawDate = $rowData['approvaldatetime'] ?? null;
+    $parsedDate = null;
+
+    if ($rawDate) {
+        try {
+            if ($rawDate instanceof \DateTimeInterface) {
+                $parsedDate = Carbon::instance($rawDate)->format('d-m-Y');
+            } elseif (is_numeric($rawDate)) {
+                $parsedDate = Carbon::createFromTimestamp(
+                    \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$rawDate)
+                )->format('d-m-Y');
+            } else {
+                $parsedDate = Carbon::createFromFormat('d-m-Y', trim($rawDate))->format('d-m-Y');
+            }
+        } catch (\Exception $e) {
+            try {
+                $parsedDate = Carbon::parse(trim($rawDate))->format('d-m-Y');
+            } catch (\Exception $e2) {
+                $parsedDate = null;
+            }
+        }
+    }
+
+    $entry = [
+        'sender_no' => $rowData['initiatoraccountno'] ?? null,
+        'trx_id'    => $rowData['transaction id'] ?? null,
+        'trx_date'  => $parsedDate,
+        'amount'    => isset($rowData['amount']) ? $this->parseAmount($rowData['amount']) : null,
+    ];
+    break;
+
+                // case 4: // Nagad PGW
+                //         $entry = [
+                //             'sender_no' => $rowData['customer account'] ?? null,
+                //             'trx_id'    => $rowData['transaction id'] ?? null,
+                //             'trx_date'  => isset($rowData['transaction time']) ? Carbon::parse($rowData['transaction time'])->format('Y-m-d H:i:s') : null,
+                //            'amount' => isset($rowData['amount']) ? $this->parseAmount($rowData['amount']) : null,
+                //         ];
+                //         break;
+
+                case 4: // Nagad PGW for automated downloads
+    $rawDate = $rowData['transaction time'] ?? null;
+    $parsedDate = null;
+
+    if ($rawDate) {
+        try {
+            if ($rawDate instanceof \DateTimeInterface) {
+                $parsedDate = Carbon::instance($rawDate)->format('d-m-Y');
+            } elseif (is_numeric($rawDate)) {
+                $parsedDate = Carbon::createFromTimestamp(
+                    \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$rawDate)
+                )->format('d-m-Y');
+            } else {
+                $parsedDate = Carbon::createFromFormat('d/m/Y h:i:s A', trim($rawDate))->format('d-m-Y');
+            }
+        } catch (\Exception $e) {
+            try {
+                $parsedDate = Carbon::parse(trim($rawDate))->format('d-m-Y');
+            } catch (\Exception $e2) {
+                $parsedDate = null;
+            }
+        }
+    }
+
+    $entry = [
+        'sender_no' => $rowData['customer account'] ?? null,
+        'trx_id'    => $rowData['transaction id'] ?? null,
+        'trx_date'  => $parsedDate,
+        'amount'    => isset($rowData['amount']) ? $this->parseAmount($rowData['amount']) : null,
+    ];
+    break;
+
+
+
+                // case 5: // SSL Payment
+                //     $rawTrxId = ltrim($rowData['transaction id'] ?? '', "'");
+                //     $rawDate = $rowData['date time'] ?? null;
+                //     $parsedDate = null;
+
+                //     if ($rawDate) {
+                //         try {
+                //             if ($rawDate instanceof \DateTimeInterface) {
+                //                 $parsedDate = Carbon::instance($rawDate)->format('Y-m-d H:i:s');
+                //             } elseif (is_numeric($rawDate)) {
+                //                 $parsedDate = Carbon::createFromTimestamp(
+                //                     \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$rawDate)
+                //                 )->format('Y-m-d H:i:s');
+                //             } else {
+                //                 // Use parse() instead of createFromFormat for better flexibility
+                //                 // This handles "2026-02-18 10:48:31" and "2/18/2026 10:35:55 AM"
+                //                 $parsedDate = Carbon::parse(trim($rawDate))->format('Y-m-d H:i:s');
+                //             }
+                //         } catch (\Exception $e) {
+                //             $parsedDate = null;
+                //         }
+                //     }
+
+                //     $entry = [
+                //         // In the CSV, 'card number' contains values like 'KXDBI48EH9FQ'
+                //         'sender_no' => $rowData['card number'] ?? null, 
+                //         'trx_id'    => $rawTrxId ?: null,
+                //         'trx_date'  => $parsedDate,
+                //         // The CSV column is 'Amount (BDT)' which becomes 'amount (bdt)' in your header mapping
+                //         'amount'    => isset($rowData['amount (bdt)']) ? $this->parseAmount($rowData['amount (bdt)']) : null,
+                //     ];
+                //     break;
+
                 case 5: // SSL Payment
-                    $rawTrxId = ltrim($rowData['transaction id'] ?? '', "'");
-                    $rawDate = $rowData['date time'] ?? null;
-                    $parsedDate = null;
+    $rawDate = $rowData['date time'] ?? null;
+    $parsedDate = null;
 
-                    if ($rawDate) {
-                        try {
-                            if ($rawDate instanceof \DateTimeInterface) {
-                                $parsedDate = Carbon::instance($rawDate)->format('Y-m-d H:i:s');
-                            } elseif (is_numeric($rawDate)) {
-                                $parsedDate = Carbon::createFromTimestamp(
-                                    \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$rawDate)
-                                )->format('Y-m-d H:i:s');
-                            } else {
-                                // Use parse() instead of createFromFormat for better flexibility
-                                // This handles "2026-02-18 10:48:31" and "2/18/2026 10:35:55 AM"
-                                $parsedDate = Carbon::parse(trim($rawDate))->format('Y-m-d H:i:s');
-                            }
-                        } catch (\Exception $e) {
-                            $parsedDate = null;
-                        }
-                    }
+    if ($rawDate) {
+        try {
+            if ($rawDate instanceof \DateTimeInterface) {
+                $parsedDate = Carbon::instance($rawDate)->format('d-m-Y');
+            } elseif (is_numeric($rawDate)) {
+                $parsedDate = Carbon::createFromTimestamp(
+                    \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$rawDate)
+                )->format('d-m-Y');
+            } else {
+                $parsedDate = Carbon::createFromFormat('Y-m-d H:i:s', trim($rawDate))->format('d-m-Y');
+            }
+        } catch (\Exception $e) {
+            try {
+                $parsedDate = Carbon::parse(trim($rawDate))->format('d-m-Y');
+            } catch (\Exception $e2) {
+                $parsedDate = null;
+            }
+        }
+    }
 
-                    $entry = [
-                        // In the CSV, 'card number' contains values like 'KXDBI48EH9FQ'
-                        'sender_no' => $rowData['card number'] ?? null, 
-                        'trx_id'    => $rawTrxId ?: null,
-                        'trx_date'  => $parsedDate,
-                        // The CSV column is 'Amount (BDT)' which becomes 'amount (bdt)' in your header mapping
-                        'amount'    => isset($rowData['amount (bdt)']) ? $this->parseAmount($rowData['amount (bdt)']) : null,
-                    ];
-                    break;
+    $entry = [
+        'sender_no' => $rowData['card number'] ?? null,
+        'trx_id'    => ltrim($rowData['transaction id'] ?? '', "'") ?: null,
+        'trx_date'  => $parsedDate,
+        'amount'    => isset($rowData['amount (bdt)']) ? $this->parseAmount($rowData['amount (bdt)']) : null,
+    ];
+    break;
             }
 
             // Only keep valid rows with trx_id and amount
