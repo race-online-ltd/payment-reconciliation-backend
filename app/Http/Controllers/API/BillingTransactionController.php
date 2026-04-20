@@ -9,11 +9,16 @@ use App\Models\BillingFile;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use App\Services\BulkInsertService;
 use App\Services\BillingNormalizationService;
 use Carbon\Carbon;
 
 class BillingTransactionController extends Controller
 {
+    public function __construct(
+        private readonly BulkInsertService $bulkInsertService
+    ) {}
+
     /**
      * Upload multiple billing Excel/CSV files with batch tracking
      */
@@ -40,8 +45,6 @@ class BillingTransactionController extends Controller
             $baseFolder = "batch-{$batch->id}";
             $normalizer = new BillingNormalizationService();
             $totalCount = 0;
-            $currentRow = 1;
-
             // 2️⃣ Process each uploaded file
             foreach ($request->file('files') as $i => $file) {
                 $storedPath = $file->store("{$baseFolder}/billing_files", 'private');
@@ -55,7 +58,7 @@ class BillingTransactionController extends Controller
                 ]);
 
                 // Normalize the file
-                $normalizedRows = $normalizer->normalize($storedPath);
+                $normalizedRows = $normalizer->normalize($storedPath, $billingFile->billing_system_id);
 
                 // Prepare bulk insert
                 $bulkInsert = [];
@@ -74,8 +77,16 @@ class BillingTransactionController extends Controller
                 }
 
                 if (!empty($bulkInsert)) {
-                    BillingTransaction::insert($bulkInsert);
-                    $totalCount += count($bulkInsert);
+                    $totalCount += $this->bulkInsertService->insertInChunks(
+                        BillingTransaction::class,
+                        $bulkInsert,
+                        [
+                            'source' => 'billing_transaction_upload',
+                            'batch_id' => $batch->id,
+                            'billing_system_id' => $billingFile->billing_system_id,
+                            'stored_path' => $storedPath,
+                        ]
+                    );
                 }
             }
 
@@ -99,6 +110,10 @@ class BillingTransactionController extends Controller
             if (isset($batch)) {
                 $batch->update(['status' => 'failed']);
             }
+            \Log::error('Billing file upload failed.', [
+                'batch_id' => $batch->id ?? null,
+                'error' => $e->getMessage(),
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to upload billing files',

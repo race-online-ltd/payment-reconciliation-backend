@@ -10,10 +10,15 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
+use App\Services\BulkInsertService;
 use App\Services\VendorNormalizationService;
 
 class VendorTransactionController extends Controller
 {
+    public function __construct(
+        private readonly BulkInsertService $bulkInsertService
+    ) {}
+
     /**
      * Upload Excel & Insert Vendor Transactions
      */
@@ -61,30 +66,34 @@ class VendorTransactionController extends Controller
 
         try {
             $rows = $request->file_data;
-            $chunks = array_chunk($rows, 1000);
 
             DB::beginTransaction();
             $totalCount = 0;
             $currentRow = 1;
 
-            foreach ($chunks as $chunk) {
-                $batchData = [];
-                foreach ($chunk as $row) {
-                    $batchData[] = [
-                        'batch_id'   => $batch->id,
-                        'wallet_id'  => $row['wallet_id'],
-                        'row_index'  => $currentRow++,
-                        'trx_id'     => $row['trx_id'],
-                        'sender_no'  => $row['sender_no'],
-                        'trx_date'   => Carbon::parse($row['trx_date']),
-                        'amount'     => $row['amount'],
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ];
-                }
-                VendorTransaction::insert($batchData);
-                $totalCount += count($batchData);
+            $batchData = [];
+            foreach ($rows as $row) {
+                $batchData[] = [
+                    'batch_id'   => $batch->id,
+                    'wallet_id'  => $row['wallet_id'],
+                    'row_index'  => $currentRow++,
+                    'trx_id'     => $row['trx_id'],
+                    'sender_no'  => $row['sender_no'],
+                    'trx_date'   => Carbon::parse($row['trx_date']),
+                    'amount'     => $row['amount'],
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
             }
+
+            $totalCount += $this->bulkInsertService->insertInChunks(
+                VendorTransaction::class,
+                $batchData,
+                [
+                    'source' => 'vendor_transaction_bulk_upload',
+                    'batch_id' => $batch->id,
+                ]
+            );
 
             $batch->update([
                 'vendor_file_count' => $totalCount,
@@ -103,6 +112,11 @@ class VendorTransactionController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             $batch->update(['status' => 'failed']);
+            \Log::error('Vendor transaction import failed.', [
+                'batch_id' => $batch->id,
+                'current_row' => $currentRow,
+                'error' => $e->getMessage(),
+            ]);
             return response()->json(['success' => false, 'message' => "Error at row $currentRow: " . $e->getMessage()], 500);
         }
     }
