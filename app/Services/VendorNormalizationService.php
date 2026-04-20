@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Maatwebsite\Excel\Facades\Excel;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class VendorNormalizationService
 {
@@ -19,8 +20,8 @@ class VendorNormalizationService
     {
         $rows = Excel::toArray([], storage_path('app/private/' . $storedPath))[0];
 
-        // Normalize header: lowercase & trim
-        $header = array_map(fn($h) => strtolower(trim($h)), $rows[0]);
+        // Normalize headers so Excel line breaks and extra spaces don't break key matching.
+        $header = array_map(fn($h) => $this->normalizeHeader($h), $rows[0]);
         unset($rows[0]);
 
         $normalized = [];
@@ -31,8 +32,14 @@ class VendorNormalizationService
 
             $rowData = array_combine($header, $row);
 
-            // Also lowercase keys just in case
-            $rowData = array_change_key_case($rowData, CASE_LOWER);
+            if ((int) $channelId === 2 && $index === 1) {
+                Log::info('Bkash PGW raw normalized row sample', [
+                    'channel_id' => $channelId,
+                    'wallet_id' => $walletId,
+                    'headers' => $header,
+                    'rowData' => $rowData,
+                ]);
+            }
 
             $entry = null;
 
@@ -46,28 +53,9 @@ class VendorNormalizationService
                 //     ];
                 //     break;
                 case 1: // Bkash Paybill
-    $rawDate = $rowData['transaction date'] ?? null;
-    $parsedDate = null;
-
-    if ($rawDate) {
-        try {
-            if ($rawDate instanceof \DateTimeInterface) {
-                $parsedDate = Carbon::instance($rawDate)->format('Y-m-d');
-            } elseif (is_numeric($rawDate)) {
-                $parsedDate = Carbon::createFromTimestamp(
-                    \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$rawDate)
-                )->format('Y-m-d');
-            } else {
-                $parsedDate = Carbon::createFromFormat('Y-m-d H:i:s', trim($rawDate))->format('Y-m-d');
-            }
-        } catch (\Exception $e) {
-            try {
-                $parsedDate = Carbon::parse(trim($rawDate))->format('Y-m-d');
-            } catch (\Exception $e2) {
-                $parsedDate = null;
-            }
-        }
-    }
+    $parsedDate = $this->normalizeDate($rowData['transaction date'] ?? null, [
+        'Y-m-d H:i:s',
+    ]);
 
     $entry = [
         'sender_no' => $rowData['bkash account'] ?? null,
@@ -88,34 +76,28 @@ class VendorNormalizationService
                 //     break;
 
                 case 2: // Bkash PGW for automated downloads
-    $rawDate = $rowData['date'] ?? null;
-    $parsedDate = null;
-
-    if ($rawDate) {
-        try {
-            if ($rawDate instanceof \DateTimeInterface) {
-                $parsedDate = Carbon::instance($rawDate)->format('d-m-Y');
-            } elseif (is_numeric($rawDate)) {
-                $parsedDate = Carbon::createFromTimestamp(
-                    \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$rawDate)
-                )->format('d-m-Y');
-            } else {
-                $parsedDate = Carbon::createFromFormat('d-m-Y h:i A', trim($rawDate))->format('d-m-Y');
-            }
-        } catch (\Exception $e) {
-            try {
-                $parsedDate = Carbon::parse(trim($rawDate))->format('d-m-Y');
-            } catch (\Exception $e2) {
-                $parsedDate = null;
-            }
-        }
-    }
+    $parsedDate = $this->normalizeDate($this->valueFromAliases($rowData, [
+        'date',
+        'date time',
+    ]), [
+        'd-m-Y h:i A',
+        'd-m-Y',
+    ]);
 
     $entry = [
-        'sender_no' => $rowData['from wallet'] ?? null,
-        'trx_id'    => $rowData['transaction id'] ?? null,
+        'sender_no' => $this->valueFromAliases($rowData, [
+            'from wallet',
+        ]),
+        'trx_id'    => $this->valueFromAliases($rowData, [
+            'transaction id',
+        ]),
         'trx_date'  => $parsedDate,
-        'amount'    => isset($rowData['transaction amount(in bdt)']) ? $this->parseAmount($rowData['transaction amount(in bdt)']) : null,
+        'amount'    => ($amount = $this->valueFromAliases($rowData, [
+            'transaction amount (in bdt)',
+            'transaction amount(in bdt)',
+            'transaction amount',
+            'amount',
+        ])) !== null ? $this->parseAmount($amount) : null,
     ];
     break;
 
@@ -128,28 +110,9 @@ class VendorNormalizationService
             //          ];
             //           break;
             case 3: // Nagad Paybill for automated downloads
-    $rawDate = $rowData['approvaldatetime'] ?? null;
-    $parsedDate = null;
-
-    if ($rawDate) {
-        try {
-            if ($rawDate instanceof \DateTimeInterface) {
-                $parsedDate = Carbon::instance($rawDate)->format('d-m-Y');
-            } elseif (is_numeric($rawDate)) {
-                $parsedDate = Carbon::createFromTimestamp(
-                    \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$rawDate)
-                )->format('d-m-Y');
-            } else {
-                $parsedDate = Carbon::createFromFormat('d-m-Y', trim($rawDate))->format('d-m-Y');
-            }
-        } catch (\Exception $e) {
-            try {
-                $parsedDate = Carbon::parse(trim($rawDate))->format('d-m-Y');
-            } catch (\Exception $e2) {
-                $parsedDate = null;
-            }
-        }
-    }
+    $parsedDate = $this->normalizeDate($rowData['approvaldatetime'] ?? null, [
+        'd-m-Y',
+    ]);
 
     $entry = [
         'sender_no' => $rowData['initiatoraccountno'] ?? null,
@@ -169,28 +132,10 @@ class VendorNormalizationService
                 //         break;
 
                 case 4: // Nagad PGW for automated downloads
-    $rawDate = $rowData['transaction time'] ?? null;
-    $parsedDate = null;
-
-    if ($rawDate) {
-        try {
-            if ($rawDate instanceof \DateTimeInterface) {
-                $parsedDate = Carbon::instance($rawDate)->format('d-m-Y');
-            } elseif (is_numeric($rawDate)) {
-                $parsedDate = Carbon::createFromTimestamp(
-                    \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$rawDate)
-                )->format('d-m-Y');
-            } else {
-                $parsedDate = Carbon::createFromFormat('d/m/Y h:i:s A', trim($rawDate))->format('d-m-Y');
-            }
-        } catch (\Exception $e) {
-            try {
-                $parsedDate = Carbon::parse(trim($rawDate))->format('d-m-Y');
-            } catch (\Exception $e2) {
-                $parsedDate = null;
-            }
-        }
-    }
+    $parsedDate = $this->normalizeDate($rowData['transaction time'] ?? null, [
+        'd/m/Y h:i:s A',
+        'd-m-Y',
+    ]);
 
     $entry = [
         'sender_no' => $rowData['customer account'] ?? null,
@@ -236,28 +181,10 @@ class VendorNormalizationService
                 //     break;
 
                 case 5: // SSL Payment
-    $rawDate = $rowData['date time'] ?? null;
-    $parsedDate = null;
-
-    if ($rawDate) {
-        try {
-            if ($rawDate instanceof \DateTimeInterface) {
-                $parsedDate = Carbon::instance($rawDate)->format('d-m-Y');
-            } elseif (is_numeric($rawDate)) {
-                $parsedDate = Carbon::createFromTimestamp(
-                    \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$rawDate)
-                )->format('d-m-Y');
-            } else {
-                $parsedDate = Carbon::createFromFormat('Y-m-d H:i:s', trim($rawDate))->format('d-m-Y');
-            }
-        } catch (\Exception $e) {
-            try {
-                $parsedDate = Carbon::parse(trim($rawDate))->format('d-m-Y');
-            } catch (\Exception $e2) {
-                $parsedDate = null;
-            }
-        }
-    }
+    $parsedDate = $this->normalizeDate($rowData['date time'] ?? null, [
+        'Y-m-d H:i:s',
+        'd-m-Y',
+    ]);
 
     $entry = [
         'sender_no' => $rowData['card number'] ?? null,
@@ -273,15 +200,85 @@ class VendorNormalizationService
                 $entry['wallet_id'] = $walletId;
                 $entry['row_index'] = $index + 1; // optional: Excel row index
                 $normalized[] = $entry;
+            } elseif ((int) $channelId === 2 && $index <= 5) {
+                Log::info('Bkash PGW skipped row during normalization', [
+                    'channel_id' => $channelId,
+                    'wallet_id' => $walletId,
+                    'row_index' => $index + 1,
+                    'entry' => $entry,
+                    'has_trx_id' => ! empty($entry['trx_id'] ?? null),
+                    'has_amount' => array_key_exists('amount', $entry ?? []) && $entry['amount'] !== null,
+                ]);
             }
+        }
+
+        if ((int) $channelId === 2) {
+            Log::info('Bkash PGW normalization summary', [
+                'channel_id' => $channelId,
+                'wallet_id' => $walletId,
+                'normalized_count' => count($normalized),
+                'sample_normalized_row' => $normalized[0] ?? null,
+            ]);
         }
 
         return $normalized;
     }
-        private function parseAmount(mixed $value): ?float
-        {
+
+    private function normalizeDate(mixed $rawDate, array $formats = []): ?string
+    {
+        if (blank($rawDate)) {
+            return null;
+        }
+
+        if ($rawDate instanceof \DateTimeInterface) {
+            return Carbon::instance($rawDate)->startOfDay()->toDateTimeString();
+        }
+
+        if (is_numeric($rawDate)) {
+            return Carbon::createFromTimestamp(
+                \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float) $rawDate)
+            )->startOfDay()->toDateTimeString();
+        }
+
+        $rawDate = trim((string) $rawDate);
+
+        foreach ($formats as $format) {
+            try {
+                return Carbon::createFromFormat($format, $rawDate)->startOfDay()->toDateTimeString();
+            } catch (\Exception) {
+            }
+        }
+
+        try {
+            return Carbon::parse($rawDate)->startOfDay()->toDateTimeString();
+        } catch (\Exception) {
+            return null;
+        }
+    }
+
+    private function parseAmount(mixed $value): ?float
+    {
         if (empty($value)) return null;
         $cleaned = preg_replace('/[^\d.]/i', '', str_replace(',', '', (string)$value));
         return $cleaned !== '' ? (float)$cleaned : null;
+    }
+
+    private function normalizeHeader(mixed $value): string
+    {
+        $value = str_replace("\xc2\xa0", ' ', (string) $value);
+        $value = preg_replace('/\s+/u', ' ', $value);
+
+        return strtolower(trim($value));
+    }
+
+    private function valueFromAliases(array $rowData, array $aliases): ?string
+    {
+        foreach ($aliases as $alias) {
+            if (array_key_exists($alias, $rowData) && $rowData[$alias] !== '') {
+                return $rowData[$alias];
+            }
         }
+
+        return null;
+    }
 }

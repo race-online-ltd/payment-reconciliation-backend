@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use App\Jobs\RunComparisonJob;
+use Carbon\Carbon;
 
 class ReconcileController extends Controller
 {
@@ -75,6 +76,19 @@ class ReconcileController extends Controller
                     $vendorFile->wallet_id
                 );
 
+                if ((int) $vendorFile->channel_id === 2) {
+                    \Log::info('Bkash PGW reconcile normalization result', [
+                        'batch_id' => $batch->id,
+                        'vendor_file_id' => $vendorFile->id,
+                        'file' => $vendorFile->original_filename,
+                        'stored_path' => $path,
+                        'channel_id' => $vendorFile->channel_id,
+                        'wallet_id' => $vendorFile->wallet_id,
+                        'normalized_count' => count($normalizedRows),
+                        'sample_row' => $normalizedRows[0] ?? null,
+                    ]);
+                }
+
                 $bulkInsert = [];
                 foreach ($normalizedRows as $index => $row) {
                     $bulkInsert[] = [
@@ -82,12 +96,21 @@ class ReconcileController extends Controller
                         'wallet_id'  => $vendorFile->wallet_id,
                         'trx_id'     => $row['trx_id'],
                         'sender_no'  => $row['sender_no'],
-                        'trx_date'   => $row['trx_date'],
+                        'trx_date'   => $row['trx_date'] ? Carbon::parse($row['trx_date'])->toDateTimeString() : null,
                         'amount'     => $row['amount'],
                         'row_index'  => $index + 1,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ];
+                }
+
+                if ((int) $vendorFile->channel_id === 2) {
+                    \Log::info('Bkash PGW reconcile insert payload', [
+                        'batch_id' => $batch->id,
+                        'vendor_file_id' => $vendorFile->id,
+                        'rows_to_insert' => count($bulkInsert),
+                        'sample_insert_row' => $bulkInsert[0] ?? null,
+                    ]);
                 }
 
                 if (!empty($bulkInsert)) {
@@ -102,6 +125,14 @@ class ReconcileController extends Controller
                             'stored_path' => $path,
                         ]
                     );
+
+                    if ((int) $vendorFile->channel_id === 2) {
+                        \Log::info('Bkash PGW reconcile insert completed', [
+                            'batch_id' => $batch->id,
+                            'vendor_file_id' => $vendorFile->id,
+                            'inserted_rows' => count($bulkInsert),
+                        ]);
+                    }
                 }
             }
 
@@ -132,7 +163,7 @@ class ReconcileController extends Controller
                         'customer_id'       => $row['customer_id'] ?? null,
                        
                         'amount'            => $row['amount'],
-                        'trx_date'          => $row['trx_date'],
+                        'trx_date'          => $row['trx_date'] ? Carbon::parse($row['trx_date'])->toDateTimeString() : null,
                         'created_at'        => now(),
                         'updated_at'        => now(),
                     ];
