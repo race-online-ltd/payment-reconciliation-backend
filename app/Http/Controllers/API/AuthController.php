@@ -20,7 +20,7 @@ class AuthController extends Controller
 
         $user = User::where('username', $request->username)->first();
 
-        if (! $user || ! Hash::check($request->password, $user->password)) {
+        if (! $user || ! $this->passwordMatches($user, $request->password)) {
             throw ValidationException::withMessages([
                 'username' => ['Invalid credentials.'],
             ]);
@@ -43,5 +43,32 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Logged out successfully'
         ]);
+    }
+
+    protected function passwordMatches(User $user, string $plainPassword): bool
+    {
+        $storedHash = $user->password;
+
+        if ($this->isLegacyBcryptHash($storedHash)) {
+            $normalizedHash = '$2y$'.substr($storedHash, 4);
+
+            if (! Hash::check($plainPassword, $normalizedHash)) {
+                return false;
+            }
+
+            // Persist the normalized bcrypt prefix so future logins use the standard format.
+            $user->forceFill([
+                'password' => $normalizedHash,
+            ])->save();
+
+            return true;
+        }
+
+        return Hash::check($plainPassword, $storedHash);
+    }
+
+    protected function isLegacyBcryptHash(?string $hash): bool
+    {
+        return is_string($hash) && str_starts_with($hash, '$2a$');
     }
 }

@@ -7,6 +7,7 @@ use App\Models\VendorTransaction;
 use App\Models\BillingTransaction;
 use App\Models\Comparison;
 use App\Models\ComparisonHistory;
+use Carbon\CarbonInterface;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -24,6 +25,10 @@ class RunComparisonJob implements ShouldQueue
     public int $timeout = 1200; // 20 min max for large batches
     public int $tries   = 1;
 
+    private array $previousDayVendorMismatches = [];
+    private array $previousDayBillingMismatches = [];
+    private array $resolvedPreviousComparisonIds = [];
+
     public function __construct(public Batch $batch) {}
 
     public function handle(): void
@@ -38,8 +43,11 @@ class RunComparisonJob implements ShouldQueue
             // Replace old comparisons
             Comparison::where('batch_id', $batch->id)->delete();
 
+            $this->loadPreviousDayMismatches($batch);
+
             $this->processVendorChunks($batch->id, $processNo);
             $this->processBillingOnlyChunks($batch->id, $processNo);
+            $this->removeResolvedPreviousDayMismatches();
 
             $batch->update([
                 'status'       => 'completed',
@@ -71,19 +79,26 @@ class RunComparisonJob implements ShouldQueue
 
                 foreach ($vendorTrxs as $vendorTrx) {
                     $billingTrx = $billingTrxs->get($vendorTrx->trx_id);
-                    $isMatched = $billingTrx !== null;
+                    $previousBillingMismatch = null;
+
+                    if ($billingTrx === null) {
+                        $previousBillingMismatch = $this->takePreviousDayBillingMismatch($vendorTrx->trx_id);
+                    }
+
+                    $matchedBillingSource = $billingTrx ?? $previousBillingMismatch;
+                    $isMatched = $matchedBillingSource !== null;
 
                     $rows[] = [
                         'batch_id' => $batchId,
                         'process_no' => $processNo,
                         'trx_id' => $vendorTrx->trx_id,
-                        'billing_system_id' => $billingTrx->billing_system_id ?? null,
+                        'billing_system_id' => $matchedBillingSource->billing_system_id ?? null,
                         'sender_no' => $vendorTrx->sender_no,
                         'trx_date' => $vendorTrx->getRawOriginal('trx_date'),
                         'vendor_trx_date' => $vendorTrx->getRawOriginal('trx_date'),
-                        'billing_trx_date' => $billingTrx?->getRawOriginal('trx_date'),
-                        'entity' => $billingTrx->entity ?? null,
-                        'customer_id' => $billingTrx->customer_id ?? null,
+                        'billing_trx_date' => $this->rawDateTime($matchedBillingSource, 'billing_trx_date', 'trx_date'),
+                        'entity' => $matchedBillingSource->entity ?? null,
+                        'customer_id' => $matchedBillingSource->customer_id ?? null,
                         'amount' => $vendorTrx->amount,
                         'channel_id' => $vendorTrx->wallet->payment_channel_id ?? null,
                         'wallet_id' => $vendorTrx->wallet_id,
@@ -119,22 +134,25 @@ class RunComparisonJob implements ShouldQueue
                         continue;
                     }
 
+                    $previousVendorMismatch = $this->takePreviousDayVendorMismatch($billingTrx->trx_id);
+                    $isMatched = $previousVendorMismatch !== null;
+
                     $rows[] = [
                         'batch_id' => $batchId,
                         'process_no' => $processNo,
                         'trx_id' => $billingTrx->trx_id,
                         'billing_system_id' => $billingTrx->billing_system_id,
-                        'sender_no' => null,
+                        'sender_no' => $previousVendorMismatch->sender_no ?? null,
                         'trx_date' => $billingTrx->getRawOriginal('trx_date'),
-                        'vendor_trx_date' => null,
+                        'vendor_trx_date' => $this->rawDateTime($previousVendorMismatch, 'vendor_trx_date', 'trx_date'),
                         'billing_trx_date' => $billingTrx->getRawOriginal('trx_date'),
                         'entity' => $billingTrx->entity,
                         'customer_id' => $billingTrx->customer_id,
                         'amount' => $billingTrx->amount,
-                        'channel_id' => null,
-                        'wallet_id' => null,
-                        'status' => 'mismatch',
-                        'is_vendor' => false,
+                        'channel_id' => $previousVendorMismatch->channel_id ?? null,
+                        'wallet_id' => $previousVendorMismatch->wallet_id ?? null,
+                        'status' => $isMatched ? 'matched' : 'mismatch',
+                        'is_vendor' => $isMatched,
                         'is_billing_system' => true,
                         'created_at' => $timestamp,
                         'updated_at' => $timestamp,
@@ -231,5 +249,93 @@ class RunComparisonJob implements ShouldQueue
             $isVendor ? '1' : '0',
             $isBillingSystem ? '1' : '0',
         ]);
+    }
+
+    private function loadPreviousDayMismatches(Batch $batch): void
+    {
+        $previousDate = $batch->start_date?->copy()->subDay();
+
+        if (! $previousDate instanceof CarbonInterface) {
+            return;
+        }
+
+        $previousBatchIds = Batch::query()
+            ->whereDate('start_date', $previousDate->toDateString())
+            ->pluck('id');
+
+        if ($previousBatchIds->isEmpty()) {
+            return;
+        }
+
+        $mismatches = Comparison::query()
+            ->whereIn('batch_id', $previousBatchIds)
+            ->where('status', 'mismatch')
+            ->orderBy('id')
+            ->get();
+
+        $this->previousDayVendorMismatches = $mismatches
+            ->where('is_vendor', true)
+            ->where('is_billing_system', false)
+            ->groupBy('trx_id')
+            ->map(fn (Collection $group) => $group->values()->all())
+            ->all();
+
+        $this->previousDayBillingMismatches = $mismatches
+            ->where('is_vendor', false)
+            ->where('is_billing_system', true)
+            ->groupBy('trx_id')
+            ->map(fn (Collection $group) => $group->values()->all())
+            ->all();
+    }
+
+    private function takePreviousDayVendorMismatch(?string $trxId): ?Comparison
+    {
+        return $this->takePreviousDayMismatch($this->previousDayVendorMismatches, $trxId);
+    }
+
+    private function takePreviousDayBillingMismatch(?string $trxId): ?Comparison
+    {
+        return $this->takePreviousDayMismatch($this->previousDayBillingMismatches, $trxId);
+    }
+
+    private function takePreviousDayMismatch(array &$pool, ?string $trxId): ?Comparison
+    {
+        if ($trxId === null || ! isset($pool[$trxId][0])) {
+            return null;
+        }
+
+        /** @var Comparison $comparison */
+        $comparison = array_shift($pool[$trxId]);
+        $this->resolvedPreviousComparisonIds[$comparison->id] = $comparison->id;
+
+        if ($pool[$trxId] === []) {
+            unset($pool[$trxId]);
+        }
+
+        return $comparison;
+    }
+
+    private function removeResolvedPreviousDayMismatches(): void
+    {
+        if ($this->resolvedPreviousComparisonIds === []) {
+            return;
+        }
+
+        Comparison::query()
+            ->whereIn('id', array_values($this->resolvedPreviousComparisonIds))
+            ->delete();
+    }
+
+    private function rawDateTime(object|null $source, string $preferredField, string $fallbackField): ?string
+    {
+        if ($source === null) {
+            return null;
+        }
+
+        if (method_exists($source, 'getRawOriginal')) {
+            return $source->getRawOriginal($preferredField) ?: $source->getRawOriginal($fallbackField);
+        }
+
+        return $source->{$preferredField} ?? $source->{$fallbackField} ?? null;
     }
 }
